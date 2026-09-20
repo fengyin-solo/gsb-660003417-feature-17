@@ -28,13 +28,13 @@ export const COGNATE_SETS: CognateSet[] = [
 export function buildGraph() {
   const nodes: any[] = []
   const links: any[] = []
-  COGNATE_SETS.forEach((cs, ci) => {
-    const rootId = 'root_' + ci
-    nodes.push({ id: rootId, word: cs.root, language: 'Proto-IE', meaning: cs.meaning, family: 'ie', era: '公元前5000年' })
+  COGNATE_SETS.forEach((cs) => {
+    const rootId = 'root_' + cs.root
+    nodes.push({ id: rootId, word: cs.root, language: 'Proto-IE', meaning: cs.meaning, family: cs.family, era: '公元前5000年', setRoot: cs.root })
     Object.entries(cs.languages).forEach(([lang, word]) => {
       if (!word || word === '-') return
-      const nid = ci + '_' + lang
-      nodes.push({ id: nid, word, language: lang, meaning: cs.meaning, family: 'ie', era: '现代' })
+      const nid = 'node_' + cs.root + '_' + lang
+      nodes.push({ id: nid, word, language: lang, meaning: cs.meaning, family: cs.family, era: '现代', setRoot: cs.root })
       links.push({ source: rootId, target: nid, type: 'derived' })
     })
   })

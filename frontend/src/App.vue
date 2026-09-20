@@ -16,6 +16,7 @@
             </div>
           </div>
           <svg ref="svgRef" class="w-full bg-slate-900 rounded" style="height:460px"></svg>
+          <div v-if="!store.visibleNodes.length" class="text-xs text-slate-500 text-center -mt-52 pointer-events-none relative">当前筛选条件下没有可绘制的节点</div>
         </div>
         <div class="space-y-4">
           <div class="bg-slate-800 rounded-lg p-4 border border-slate-700">
@@ -27,10 +28,14 @@
               </div>
             </div>
           </div>
-          <div v-if="store.selectedNode" class="bg-slate-800 rounded-lg p-4 border border-slate-700">
+          <div class="bg-slate-800 rounded-lg p-4 border border-slate-700">
             <h3 class="text-sm font-bold text-slate-400 mb-2">选中节点</h3>
-            <div class="text-lg font-bold text-cyan-400">{{ store.selectedNode.word }}</div>
-            <div class="text-sm text-slate-400">{{ store.selectedNode.language }} — {{ store.selectedNode.meaning }}</div>
+            <template v-if="store.selectedNode">
+              <div class="text-lg font-bold text-cyan-400">{{ store.selectedNode.word }}</div>
+              <div class="text-sm text-slate-400">{{ store.selectedNode.language }} — {{ store.selectedNode.meaning }}</div>
+              <button class="mt-2 text-xs text-slate-500 hover:text-slate-300 underline" @click="store.selectedNodeId = null">取消选中</button>
+            </template>
+            <div v-else class="text-xs text-slate-500">点击图谱节点或对照表词根查看详情</div>
           </div>
           <div class="bg-slate-800 rounded-lg p-4 border border-slate-700 text-xs text-slate-400">
             <h3 class="text-sm font-bold text-slate-400 mb-2">Grimm定律</h3>
@@ -42,6 +47,7 @@
           </div>
         </div>
       </div>
+      <ViewManager />
       <div class="bg-slate-800 rounded-lg p-4 border border-slate-700">
         <h3 class="text-sm font-bold text-slate-400 mb-3">同源词对照表</h3>
         <div class="flex gap-2 mb-3">
@@ -66,7 +72,13 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="cs in store.filteredCognates" :key="cs.root" class="border-t border-slate-700 hover:bg-slate-700">
+              <tr
+                v-for="cs in store.filteredCognates"
+                :key="cs.root"
+                class="border-t border-slate-700 hover:bg-slate-700 cursor-pointer"
+                :class="{ 'bg-cyan-950/50': store.selectedNode && store.selectedNode.setRoot === cs.root }"
+                @click="selectRoot(cs.root)"
+              >
                 <td class="px-2 py-1.5 font-mono text-slate-200 font-bold">{{ cs.root }}</td>
                 <td class="px-2 py-1.5 text-slate-400">{{ cs.meaning }}</td>
                 <td class="px-2 py-1.5 font-mono text-cyan-300">{{ cs.languages['英语'] || '—' }}</td>
@@ -78,6 +90,7 @@
               </tr>
             </tbody>
           </table>
+          <div v-if="!store.filteredCognates.length" class="text-xs text-slate-500 text-center py-6">没有匹配的同源词，请调整搜索条件或语系</div>
         </div>
       </div>
     </div>
@@ -85,22 +98,43 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import * as d3 from 'd3'
 import { useEtymologyStore, LANGUAGE_FAMILIES } from './store/etymology'
+import ViewManager from './components/ViewManager.vue'
 
 const store = useEtymologyStore()
 const svgRef = ref<SVGSVGElement | null>(null)
 const COLORS: Record<string, string> = { ie: '#3b82f6', st: '#22c55e', aa: '#f59e0b', ural: '#8b5cf6' }
 
+/** 点击对照表词根：与图谱共用同一份选中态 */
+function selectRoot(root: string) {
+  const node = store.visibleNodes.find(n => n.language === 'Proto-IE' && n.setRoot === root)
+  store.selectedNodeId = node ? (node.id as string) : null
+}
+
+let sim: d3.Simulation<any, any> | null = null
+let circleSel: d3.Selection<SVGCircleElement, any, SVGGElement, unknown> | null = null
+
+/** 按当前筛选结果高亮已选节点 */
+function paintSelection() {
+  if (!circleSel) return
+  const selectedId = store.selectedNodeId
+  circleSel
+    .attr('stroke', (d: any) => d.id === selectedId ? '#22d3ee' : '#1e293b')
+    .attr('stroke-width', (d: any) => d.id === selectedId ? 3 : 1.5)
+}
+
 function drawGraph() {
   if (!svgRef.value) return
   const svg = d3.select(svgRef.value)
   svg.selectAll('*').remove()
+  sim?.stop()
   const W = svgRef.value.getBoundingClientRect().width || 700, H = 460
-  const nodes = store.graph.nodes.map((n: any) => ({ ...n }))
-  const links = store.graph.links.map((l: any) => ({ ...l }))
-  const sim = d3.forceSimulation(nodes as any)
+  // 仅绘制与当前筛选结果一致的节点和连线
+  const nodes = store.visibleNodes.map(n => ({ ...n }))
+  const links = store.visibleLinks.map(l => ({ ...l }))
+  sim = d3.forceSimulation(nodes as any)
     .force('link', d3.forceLink(links as any).id((d: any) => d.id).distance(55))
     .force('charge', d3.forceManyBody().strength(-100))
     .force('center', d3.forceCenter(W / 2, H / 2))
@@ -110,12 +144,13 @@ function drawGraph() {
   const link = g.append('g').selectAll('line').data(links).join('line')
     .attr('stroke', '#475569').attr('stroke-width', 1).attr('opacity', 0.5)
   const node = g.append('g').selectAll('g').data(nodes).join('g')
+    .style('cursor', 'pointer')
     .call(d3.drag<any, any>()
-      .on('start', (e, d: any) => { if (!e.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y })
+      .on('start', (e, d: any) => { if (!e.active) sim?.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y })
       .on('drag', (e, d: any) => { d.fx = e.x; d.fy = e.y })
-      .on('end', (e, d: any) => { if (!e.active) sim.alphaTarget(0); d.fx = null; d.fy = null }))
-    .on('click', (_: any, d: any) => { store.selectedNode = d })
-  node.append('circle')
+      .on('end', (e, d: any) => { if (!e.active) sim?.alphaTarget(0); d.fx = null; d.fy = null }))
+    .on('click', (_: any, d: any) => { store.selectedNodeId = d.id })
+  circleSel = node.append('circle')
     .attr('r', (d: any) => d.language === 'Proto-IE' ? 12 : 7)
     .attr('fill', (d: any) => COLORS[d.family] || '#64748b')
     .attr('stroke', '#1e293b').attr('stroke-width', 1.5)
@@ -127,7 +162,13 @@ function drawGraph() {
       .attr('x2', (d: any) => d.target.x).attr('y2', (d: any) => d.target.y)
     node.attr('transform', (d: any) => `translate(${d.x},${d.y})`)
   })
+  paintSelection()
 }
+
+// 筛选结果变化（搜索/语系/恢复视图）→ 图谱重绘
+watch(() => store.graphSignature, () => drawGraph())
+// 选中态变化 → 图谱高亮与列表/详情一致，无需重绘
+watch(() => store.selectedNodeId, () => paintSelection())
 
 onMounted(() => { setTimeout(drawGraph, 100) })
 </script>
