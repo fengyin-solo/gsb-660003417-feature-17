@@ -7,3 +7,9 @@ body { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; background: #
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: #1e293b; }
 ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+
+/* 不在当前筛选结果内的图谱节点/链接：灰显且不可选 */
+.et-node.et-dim { opacity: 0.15; pointer-events: none; }
+.et-link.et-dim { opacity: 0.06; }
+.et-node:not(.et-dim) { cursor: pointer; }
+.et-node circle.et-selected { filter: drop-shadow(0 0 6px rgba(34, 211, 238, 0.8)); }
